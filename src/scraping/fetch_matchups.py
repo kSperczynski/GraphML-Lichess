@@ -34,6 +34,8 @@ def main(args):
     already_fetched = set([filename.split('.')[0] for filename in os.listdir(args.matchup_results_folder)])
     matchups = set([filename.split('.')[0] for filename in os.listdir(args.opponents_folder)])
 
+    nodes_in_graph = set(filename.split('.')[0] for filename in os.listdir(args.games_folder))
+
     for filename in os.listdir(args.games_folder):
         username = filename.split('.')[0]
 
@@ -58,7 +60,12 @@ def main(args):
         tos = []
         from_points = []
 
+        opponents = set(opponents)
+
         for opponent in opponents:
+            if opponent not in nodes_in_graph:
+                continue
+
             try:
                 all_games_with_opponent = get_all_games_with_opponent(username, opponent)
             except Exception as e:

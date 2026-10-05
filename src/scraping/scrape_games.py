@@ -15,7 +15,7 @@ PARAMS = {
     "rated": "true",
     "perfType": "rapid",
     "analysed": "true",
-    "moves": "false",
+    "moves": "true",
     "clocks": "true",
     "evals": "false",
     "accuracy": "true",
