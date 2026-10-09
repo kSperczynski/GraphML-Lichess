@@ -1,0 +1,24 @@
+[project]
+name = "graphml-lichess"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.11.2",
+    "pandas>=3.0.6",
+    "torch>=2.14.1",
+    "torch-geometric>=2.8.0.post1",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.2",
+    "pytest>=9",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+exclude = [".venv"]
+line-length = 150
