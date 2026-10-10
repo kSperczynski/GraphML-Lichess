@@ -1,0 +1,47 @@
+{
+  "experiment": "Current aggregate-feature rating estimation pilot",
+  "dataset_sha256": "52dd940a2424c16f4932f4ea0a2113804a152a37f0fcf3d98ec0fb4e7fb09cd9",
+  "feature_columns": [
+    "acpl",
+    "accuracy",
+    "num_moves",
+    "frac_blunders",
+    "frac_mistakes",
+    "frac_inaccuracies",
+    "avg_move_time",
+    "last_theory_ply",
+    "win_streak",
+    "loss_streak",
+    "num_games",
+    "win_rate",
+    "loss_rate",
+    "draw_rate"
+  ],
+  "target_column": "target_rating",
+  "split_seed": 42,
+  "split_counts": {
+    "train": 5299,
+    "validation": 1136,
+    "test": 1136
+  },
+  "training_seeds": [
+    42,
+    43,
+    44
+  ],
+  "hidden_dimensions": [
+    64,
+    32
+  ],
+  "activation": "ReLU",
+  "dropout": 0.1,
+  "optimizer": "Adam",
+  "learning_rate": 0.001,
+  "max_epochs": 200,
+  "early_stopping_patience": 20,
+  "selection_metric": "Validation MSE on standardized targets",
+  "ridge_alpha": 1.0,
+  "imputation": "Infinite inputs replaced by NaN; training-median imputation",
+  "scaling": "Feature and target StandardScaler fitted on training data only",
+  "test_policy": "Evaluate all predetermined seeds; no seed selection or tuning by test results"
+}
