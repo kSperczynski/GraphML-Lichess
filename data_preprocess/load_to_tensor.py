@@ -74,6 +74,7 @@ def load_data_to_tensors_and_transform():
     node_df = node_df[node_df['loss_streak'] < 30]
     node_df = node_df[node_df['num_games'] < 40000]
     node_df = node_df[node_df['draw_rate'] < 0.20]
+    node_df = node_df.reset_index(drop=True)
 
     # check the difference in usernames: needed to remove relevant edges
     diff = set(node_df_before_preprocess['username']) - set(node_df['username'])
@@ -81,10 +82,7 @@ def load_data_to_tensors_and_transform():
     # remove edges that connect to the removed nodes
     edges_to_be_removed = (edge_df['from'].isin(diff) | edge_df['to'].isin(diff)) # = either of the two ends has a removed node
     edge_df = edge_df[~edges_to_be_removed]
-    # print((edge_df['from'].isin(diff) | edge_df['to'].isin(diff)).sum())
-    # return
-    # print(edge_df[data.edge_df.isin(list1) == False])
-    # edge_df.drop()
+    edge_df = edge_df.reset_index(drop=True)
 
     # rebuild missing zero edges
     edge_df_mirrored = edge_df.copy()
