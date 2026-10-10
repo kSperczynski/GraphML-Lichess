@@ -1,2 +1,4 @@
 .venv
 .vscode
+plotting/saved_figs/*
+**.pyc
