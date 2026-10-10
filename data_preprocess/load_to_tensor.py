@@ -8,6 +8,16 @@ from torch_geometric.utils import to_dense_adj
 from scipy.sparse import csr_array
 from scipy.sparse.csgraph import connected_components
 
+# Constructing pyg data
+from torch_geometric.data import Data
+
+# Selection of subgraph components
+from torch_geometric.utils import subgraph
+
+# graphing, why not atp
+import seaborn as sns
+import matplotlib.pyplot as plt
+
 def load_data_to_tensors():
     """
     Just loads the data. Does not remove inf values, or do any scaling yet.
@@ -136,6 +146,38 @@ def load_data_to_tensors_and_transform():
     assert y.shape == (node_df.shape[0],), f'ERR: wrong y dimension: {y.shape}. Expected (num_nodes,)'
     assert y.min() >= 0 and 1000 <= y.mean() <= 2000, f'ERR: y label has min of {y.min()} and mean of {y.mean()}, which are likely out-of-distribution'
 
+    # ----- Remove tiny disconnected components -----
+    # (massive disparity)
+    adjacency = to_dense_adj(edge_index)[0] # 0th dim access as returns batched, e.g. size [1, 7571, 7571]
+    # and to compressed sparse matrix (following https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csgraph.connected_components.html)
+    graph = csr_array(adjacency)
+
+    # get connected components
+    n_components, labels = connected_components(graph)
+    labels = torch.from_numpy(labels)
+
+    # param, heuristic
+    MIN_NUM_NODES = 50
+
+    # keep only components that have enough nodes
+    components_to_keep: list[int] = []
+    for idx_component in range(n_components):
+
+        # check if worth keeping
+        if (labels == idx_component).sum() > MIN_NUM_NODES:
+            components_to_keep.append(idx_component)
+                        
+    # keep only the relevant nodes
+    bool_select_tensor = torch.isin(labels, torch.tensor(components_to_keep))
+    indices_to_keep = torch.arange(x.shape[0])[bool_select_tensor] # T,T,F,F,T -> 0,1,4
+    
+    edge_index, edge_attrs = subgraph(subset=bool_select_tensor, edge_index=edge_index, edge_attr=edge_attrs, relabel_nodes=True)
+    x = x[indices_to_keep]
+    y = y[indices_to_keep]
+
+    assert x.shape[0] == y.shape[0], f'ERR: num X datapoints ({x.shape[0]}) does not match num Y labels ({y.shape[0]})'
+    assert edge_index.max() < x.shape[0], f'ERR: edge index refers to deleted nodes. Expected < {x.shape[0]}, was {edge_index.max()}'
+
     return x.to(torch.float32), y.to(torch.float32), edge_index.long(), edge_attrs.to(torch.float32), scaler
 
 def graph_details(x: torch.Tensor, edge_index: torch.Tensor):
@@ -154,6 +196,51 @@ def graph_details(x: torch.Tensor, edge_index: torch.Tensor):
         'num_connected_components': n_components,
         'sparsity': sparsity
     }
+
+###
+# This method can be used when we have multiple large disconnected components 
+# (e.g. 100+, each with 50+nodes), to do inductive training (train on some graphs, test on others)
+###
+# def load_train_test_split(fraction_train: float) -> tuple[list, list]:
+    
+#     x, y, edge_index, edge_attrs, _ = load_data_to_tensors_and_transform()
+#     adjacency = to_dense_adj(edge_index)[0]
+#     graph = csr_array(adjacency)
+
+#     n_components, labels = connected_components(graph)
+
+#     sns.histplot(labels)
+#     plt.show()
+
+#     labels = torch.from_numpy(labels)
+#     # labels :: [7360,]
+
+#     assert 0 < fraction_train <= 1, 'ERR: fraction train must be <=1'
+#     num_subgraphs_train = int(fraction_train * n_components)
+
+#     data_objects_train = []
+#     for subgraph_idx in range(num_subgraphs_train):
+
+#         bool_select_tensor = labels == subgraph_idx
+#         indices_to_keep = torch.arange(x.shape[0])[bool_select_tensor] # T,T,F,F,T -> 0,1,4
+
+#         edge_index,edge_attrs = subgraph(subset=bool_select_tensor, edge_index=edge_index, edge_attr=edge_attrs)
+#         data_obj = Data(x[indices_to_keep], edge_index, edge_attrs, y[indices_to_keep])
+
+#         data_objects_train.append(data_obj)
+
+#     data_objects_test = []
+#     for subgraph_idx in range(num_subgraphs_train, n_components):
+    
+#         bool_select_tensor = labels == subgraph_idx
+#         indices_to_keep = torch.arange(x.shape[0])[bool_select_tensor] # T,T,F,F,T -> 0,1,4
+
+#         edge_index,edge_attrs = subgraph(subset=bool_select_tensor, edge_index=edge_index, edge_attr=edge_attrs)
+#         data_obj = Data(x[indices_to_keep], edge_index, edge_attrs, y[indices_to_keep])
+
+#         data_objects_test.append(data_obj)
+        
+#     return data_objects_train, data_objects_test
 
 
 if __name__ == '__main__':

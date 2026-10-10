@@ -71,4 +71,4 @@ def test_graph_construction_example():
     edge_attrs = edge_attrs[permutation]
 
     # Same return as load_data_to_tensors_and_transform
-    return x, torch.ones(x.shape[0]), edge_index, edge_attrs, None
+    return x.float(), torch.ones(x.shape[0]), edge_index.long(), edge_attrs.float(), None
