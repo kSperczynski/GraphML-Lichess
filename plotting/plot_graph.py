@@ -61,4 +61,4 @@ def plot_graph(x: torch.Tensor, edge_index: torch.Tensor, edge_attrs: torch.Tens
         font_size=12,
         bbox={"alpha": 0}
     )
-    plt.savefig(os.path.join(os.getcwd(), 'plotting', 'saved_figs', f'{config['figname'].removesuffix('.jpg')}.jpg'))
+    plt.savefig(os.path.join(os.getcwd(), 'plotting', 'saved_figs', f'{config["figname"].removesuffix(".jpg")}.jpg'))

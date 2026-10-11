@@ -4,6 +4,8 @@ from models.dirgnn.dirgnn_graph_construction import construct_attention_edge_fea
 from scipy.stats.mstats import chisquare
 from plotting.plot_graph import plot_graph
 
+# from models.label_propagation.label_propagation import evaluate_label_propagation, print_LP_evaluation_results, trivial_baseline
+
 if __name__ == "__main__":
 
     # Test on test graph
@@ -23,3 +25,7 @@ if __name__ == "__main__":
 
     # connected components, sparsity
     print(f'\nGraph details:\n{graph_details(x, edge_index)}')
+
+    # res = evaluate_label_propagation(y, edge_index, verbose=True)
+    # print_LP_evaluation_results(res)
+    # trivial_baseline(y)
