@@ -119,22 +119,31 @@ def train_baseline_regressor():
 
 def hyperparameter_search():
     
-    lr_options = (1e-4 * 5 ** np.linspace(start=-1, stop=1, num=3)).tolist()
-    wd_options = (1e-5 * 5 ** np.linspace(start=-1, stop=1, num=3)).tolist()
+    # lr_options = (1e-4 * 5 ** np.linspace(start=-1, stop=1, num=3)).tolist()
+    # wd_options = (1e-5 * 5 ** np.linspace(start=-1, stop=1, num=3)).tolist()
 
-    mp_latent_features_options = [8, 14, 20, 32, 64]
-    mp_output_features = [8, 14, 20, 32, 64]
-    num_mp_layers = [2,3,4,5]
-    num_nodewise_layers = [1,2,3]
-    mp_bias = [True, False]
+    # mp_latent_features_options = [8, 14, 20, 32, 64]
+    # mp_output_features = [8, 14, 20, 32, 64]
+    # num_mp_layers = [2,3,4,5]
+    # num_nodewise_layers = [1,2,3]
+    # mp_bias = [True, False]
+    lr_options = [2e-5]
+    wd_options = [5e-5]
+    mp_latent_features_options = [32]
+    mp_output_features = [16]
+    num_mp_layers = [4]
+    num_nodewise_layers = [1]
+    mp_bias = [False]
+    dir_alpha = [0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]
+    seeds = [1,2,3,4,5,6,7,8,9,10]
 
-    product = itertools.product(lr_options, wd_options, mp_latent_features_options, mp_output_features, num_mp_layers, num_nodewise_layers, mp_bias)
+    product = itertools.product(lr_options, wd_options, mp_latent_features_options, mp_output_features, num_mp_layers, num_nodewise_layers, mp_bias, dir_alpha)
     product = list(product)
     print(f"Configurations to try: {len(product)}")
     # random permute, allow for "approximately anytime" stop
     random.shuffle(product)
     
-    ArgsObj = namedtuple('ArgsObj', 'device, num_epochs, batch_size, lr, weight_decay, mp_input_features, mp_latent_features, mp_output_features, mp_bias, num_mp_layers, num_nodewise_layers')
+    ArgsObj = namedtuple('ArgsObj', 'device, num_epochs, batch_size, lr, weight_decay, mp_input_features, mp_latent_features, mp_output_features, mp_bias, num_mp_layers, num_nodewise_layers, dir_alpha')
     
     x, y, edge_index, edge_attr, scaler = load_data_to_tensors_and_transform()
 
@@ -152,71 +161,68 @@ def hyperparameter_search():
     data = Data(x,edge_index,edge_features,y)
     dataloader = DataLoader([data], batch_size=1)
 
-    # Train-Test split
-    node_transform = RandomNodeSplit(num_val=0, num_test=0.3) #30% test, 70% train
-    node_splits = node_transform(data)
-    train_mask = node_splits.train_mask
-    test_mask = node_splits.test_mask
-
     # Init file
     with open(os.path.join(os.getcwd(), 'experiment_results', 'dirgnn', 'evaluation.csv'), 'w+') as f:
-        f.write("lr, weight_decay, mp_latent_features, mp_output_features, num_mp_layers, num_nodewise_layers, mp_bias, all_training_losses, all_validation_losses")
+        f.write("lr, weight_decay, mp_latent_features, mp_output_features, num_mp_layers, num_nodewise_layers, mp_bias, dir_alpha, all_training_losses, all_validation_losses")
     
     product_results = []
     for config in tqdm(product):
-        lr, weight_decay, mp_latent_features, mp_output_features, num_mp_layers, num_nodewise_layers, mp_bias = config
-    
-        args = ArgsObj(device="cuda", num_epochs=200, batch_size=1, lr=lr, weight_decay=weight_decay, mp_input_features=14, mp_latent_features=mp_latent_features, mp_output_features=mp_output_features, mp_bias=mp_bias, num_mp_layers=num_mp_layers, num_nodewise_layers=num_nodewise_layers)
-
-        # Create model
-        model = AnalyticalAttentionNetwork(args)
+        train_avg_losses = []
+        val_avg_losses = []
+        lr, weight_decay, mp_latent_features, mp_output_features, num_mp_layers, num_nodewise_layers, mp_bias, dir_alpha = config
+        for seed in seeds:
+            torch.manual_seed(seed)
+            random.seed = seed
+            # Train-Test split
+            node_transform = RandomNodeSplit(num_val=0, num_test=0.3) #30% test, 70% train
+            node_splits = node_transform(data)
+            train_mask = node_splits.train_mask
+            test_mask = node_splits.test_mask
         
-        optimizer = torch.optim.SGD(model.parameters(),lr=args.lr,momentum=0.9, weight_decay=args.weight_decay)
-        
-        loss_fn = torch.nn.MSELoss()
-        
-        all_training_losses = []
-        all_validation_losses = []
-        for epoch_idx in range(args.num_epochs):
+            args = ArgsObj(device="cuda", num_epochs=200, batch_size=1, lr=lr, weight_decay=weight_decay, mp_input_features=14, mp_latent_features=mp_latent_features, mp_output_features=mp_output_features, mp_bias=mp_bias, num_mp_layers=num_mp_layers, num_nodewise_layers=num_nodewise_layers, dir_alpha=dir_alpha)
 
-            loss_list = []
-            val_loss_list = []
-            # print(f'='*10 + f'Epoch {epoch_idx}' + '='*10)
-            for idx, data in enumerate(dataloader):
+            # Create model
+            model = AnalyticalAttentionNetwork(args)
+            
+            optimizer = torch.optim.SGD(model.parameters(),lr=args.lr,momentum=0.9, weight_decay=args.weight_decay)
+            
+            loss_fn = torch.nn.MSELoss()
+            
+            all_training_losses = []
+            all_validation_losses = []
+            for epoch_idx in range(args.num_epochs):
 
-                optimizer.zero_grad()
-                x, y, edge_attr, edge_index = data.x, data.y, data.edge_attr, data.edge_index # unpack
+                loss_list = []
+                val_loss_list = []
+                # print(f'='*10 + f'Epoch {epoch_idx}' + '='*10)
+                for idx, data in enumerate(dataloader):
 
-                output = model.forward(x, edge_index, edge_attr)
-                loss = loss_fn.forward(output[train_mask,:], y.unsqueeze(-1)[train_mask,:])
+                    optimizer.zero_grad()
+                    x, y, edge_attr, edge_index = data.x, data.y, data.edge_attr, data.edge_index # unpack
 
-                loss_list.append(loss.item())
+                    output = model.forward(x, edge_index, edge_attr)
+                    loss = loss_fn.forward(output[train_mask,:], y.unsqueeze(-1)[train_mask,:])
 
-                loss.backward()
-                optimizer.step()
+                    loss_list.append(loss.item())
 
-                with torch.no_grad():
-                    val_loss = loss_fn.forward(output[test_mask,:], y.unsqueeze(-1)[test_mask,:])
-                    val_loss_list.append(val_loss.item())
-                
-            all_training_losses = all_training_losses + loss_list
-            all_validation_losses = all_validation_losses+val_loss_list
-        
-        # Write down results
-        # product_results.append({
-        #     'config': {
-        #         'lr': lr, 'weight_decay': weight_decay, 'mp_latent_features': mp_latent_features, 'mp_output_features': mp_output_features, 'num_mp_layers': num_mp_layers, 'num_nodewise_layers': num_nodewise_layers, 'mp_bias': mp_bias
-        #     },
-        #     'losses': all_losses, # useful for graphs
-        #     'lowest_validation_loss': min(all_losses)
-        # })
+                    loss.backward()
+                    optimizer.step()
+
+                    with torch.no_grad():
+                        val_loss = loss_fn.forward(output[test_mask,:], y.unsqueeze(-1)[test_mask,:])
+                        val_loss_list.append(val_loss.item())
+                    
+                all_training_losses = all_training_losses + loss_list
+                all_validation_losses = all_validation_losses+val_loss_list
+
+            # Save avg across seeds of min train and val
+            train_avg_losses.append(min(all_training_losses))
+            val_avg_losses.append(min(all_validation_losses))
 
         # Append to file
         with open(os.path.join(os.getcwd(), 'experiment_results', 'dirgnn', 'evaluation.csv'), 'a') as f:
-            f.write('\n' + ','.join([str(x) for x in [lr, weight_decay, mp_latent_features, mp_output_features, num_mp_layers, num_nodewise_layers, mp_bias, min(all_training_losses), min(all_validation_losses)]]))
+            f.write('\n' + ','.join([str(x) for x in [lr, weight_decay, mp_latent_features, mp_output_features, num_mp_layers, num_nodewise_layers, mp_bias, dir_alpha, sum(train_avg_losses) / len(train_avg_losses), sum(val_avg_losses) / len(val_avg_losses)]]))
 
-
-    
 
 
 if __name__ == "__main__":
@@ -236,8 +242,8 @@ if __name__ == "__main__":
     # Training arguments
     parser.add_argument("--num-epochs", type=int, default=200, required=False)
     parser.add_argument("--batch-size", type=int, default=1, required=False)
-    parser.add_argument("--lr", type=float, default=1e-4, required=False)
-    parser.add_argument("--weight_decay", type=float, default=1e-5, required=False)
+    parser.add_argument("--lr", type=float, default=2e-5, required=False)
+    parser.add_argument("--weight_decay", type=float, default=5e-5, required=False)
 
     # Message passing layers arguments
     parser.add_argument("--mp_input_features", type=int, default=14, required=False)
@@ -245,6 +251,7 @@ if __name__ == "__main__":
     parser.add_argument("--mp_output_features", type=int, default=16, required=False)
     parser.add_argument("--mp_bias", type=bool, default=False, required=False)
     parser.add_argument("--num_mp_layers", type=int, default=4, required=False)
+    parser.add_argument("--dir_alpha", type=float, default=0.5, required=False)
 
     # Decoder MLP arguments
     parser.add_argument("--num_nodewise_layers", type=int, default=1, required=False)

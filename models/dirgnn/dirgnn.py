@@ -108,9 +108,12 @@ class AnalyticalAttentionNetwork(nn.Module):
         
 
     def forward(self, x, edge_index, edge_features):
+        ALPHA = self.args.dir_alpha
         # Forward MP layers
         for layer in self.mp_layers:
-            x = layer.forward(x, edge_index, edge_features)
+            x1 = layer.forward(x, edge_index, edge_features)
+            x2 = layer.forward(x, edge_index.flip([0]), edge_features)
+            x = ALPHA * x1 + (1-ALPHA) * x2
 
         # Node-wise MLP
         for layer in self.decode_mlp:

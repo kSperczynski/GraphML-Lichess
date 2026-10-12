@@ -2,3 +2,4 @@
 .vscode
 plotting/saved_figs/*
 **.pyc
+experiment_results/*
