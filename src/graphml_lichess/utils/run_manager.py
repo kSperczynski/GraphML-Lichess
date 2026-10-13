@@ -65,6 +65,9 @@ class RunManager:
         path = self.run_dir / filename
         save_yaml(config, path)
 
+    def save_run_info(self, info: dict, filename: str = "run_info.json") -> None:
+        self._write_json(info, filename)
+
     @staticmethod
     def collect_metadata(device: torch.device, seed: int) -> dict[str, Any]:
         """Collects environment and git metadata. Kept static as it doesn't rely on run state."""

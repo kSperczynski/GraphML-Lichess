@@ -139,6 +139,8 @@ class TrainingPipeline:
             filename="model.pt",
         )
 
+        info = {"metadata": self.metadata, "metrics": metrics}
+        self.run_manager.save_run_info(info)
         self.logger.info("Best validation score: %.4f", result.best_validation_score)
         self.logger.info("Test score: %.4f", test_loss)
         self.logger.info("Saved artifacts to %s", self.run_manager.run_dir)
