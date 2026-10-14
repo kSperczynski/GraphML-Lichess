@@ -50,7 +50,7 @@ class LichessGraphLoader:
 
         duplicated = nodes[nodes.duplicated()]
         if len(duplicated):
-            self.logger.warning(f"THere are {len(duplicated)} duplicated rows, they are: {duplicated}")
+            self.logger.warning(f"There are {len(duplicated)} duplicated rows, they are: {duplicated}")
 
         nodes = nodes.drop_duplicates(self.id_column).reset_index(drop=True)
         usernames = nodes[self.id_column].astype(str).tolist()
@@ -59,6 +59,11 @@ class LichessGraphLoader:
         x = nodes[self.feature_columns].to_numpy(dtype=np.float32)
         y = nodes[self.target_column].to_numpy(dtype=np.float32)
 
+        duplicated_edges = edges[edges.duplicated()]
+        if len(duplicated_edges):
+            self.logger.warning(f"There are {len(duplicated)} duplicated edges, they are: {duplicated}")
+
+        edges = edges.drop_duplicates(["from", "to"]).reset_index(drop=True)
         edge_rows = edges[edges["from"].astype(str).isin(node_index) & edges["to"].astype(str).isin(node_index)]
 
         missing = len(edges) - len(edge_rows)
@@ -115,12 +120,13 @@ class LichessGraphLoader:
     def _check_infinities(self, df: pd.DataFrame, columns: list[str], context_label: str) -> None:
         data_matrix = df[columns].to_numpy(dtype=np.float32)
 
+        # If there are infinites, show some of the rows where that is the case
         if np.isinf(data_matrix).any():
             bad_columns = [col for col in columns if np.isinf(df[col].to_numpy(dtype=np.float32)).any()]
 
             row_mask = np.isinf(data_matrix).any(axis=1)
             bad_rows = df[row_mask]
-            sample_df = bad_rows.head(5)  # Only display the first 5 rows
+            sample_df = bad_rows.head(5)
 
             raise ValueError(
                 f"Data error: Infinite values detected in {context_label} columns: {bad_columns}.\n"
@@ -131,6 +137,7 @@ class LichessGraphLoader:
         """Validate the nodes. Check if:
         - They have all required columns
         - The target column is not also in the feature columns
+        - There are no infinite values
         """
         required = {
             self.id_column,
@@ -149,6 +156,7 @@ class LichessGraphLoader:
     def _validate_edges(self, edges: pd.DataFrame) -> None:
         """Validate the edges. Check if:
         - All the required columns are present
+        - There are no infinite values
         """
         required = {"from", "to", *self.edge_feature_columns}
         missing = required.difference(edges.columns)

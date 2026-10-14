@@ -1,72 +1,101 @@
+from __future__ import annotations
+
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
 
 
-@dataclass(frozen=True)
-class GraphSplit:
+@dataclass
+class Masks:
     train: np.ndarray
-    test: np.ndarray
     validation: np.ndarray
+    test: np.ndarray
 
-    def masks(self, num_nodes: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        train_mask = np.zeros(num_nodes, dtype=bool)
-        test_mask = np.zeros(num_nodes, dtype=bool)
-        val_mask = np.zeros(num_nodes, dtype=bool)
+    def as_dict(self) -> dict[str, np.ndarray]:
+        return {"train": self.train, "validation": self.validation, "test": self.test}
 
-        train_mask[self.train] = True
-        test_mask[self.test] = True
-        val_mask[self.validation] = True
-        return train_mask, test_mask, val_mask
 
-    def as_json(self) -> dict[str, list[int]]:
-        return {
-            "train": self.train.tolist(),
-            "test": self.test.tolist(),
-            "validation": self.validation.tolist(),
+@dataclass
+class NodeSplit:
+    train: list[str]
+    validation: list[str]
+    test: list[str]
+    meta: dict
+
+    @property
+    def fingerprint(self) -> str:
+        payload = json.dumps([sorted(self.train), sorted(self.validation), sorted(self.test)])
+        return hashlib.sha256(payload.encode()).hexdigest()[:12]
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "meta": {**self.meta, "fingerprint": self.fingerprint},
+            "train": self.train,
+            "validation": self.validation,
+            "test": self.test,
         }
+        path.write_text(json.dumps(data))
+
+    @classmethod
+    def load(cls, path: Path) -> NodeSplit:
+        if not path.exists():
+            raise FileNotFoundError(f"Split file {path} not found. Create it with: make-split --config <cfg>")
+        d = json.loads(path.read_text())
+        return cls(d["train"], d["validation"], d["test"], d["meta"])
+
+    def to_masks(self, usernames) -> Masks:
+        """Boolean masks aligned with the graph's node order. Fails loudly if the data changed."""
+        names = np.asarray(usernames)
+        listed = set(self.train) | set(self.validation) | set(self.test)
+        if listed != set(names):
+            raise ValueError(
+                f"Split and graph disagree: {len(listed - set(names))} split users missing from graph, "
+                f"{len(set(names) - listed)} graph users missing from split. Regenerate the split."
+            )
+        return Masks(np.isin(names, self.train), np.isin(names, self.validation), np.isin(names, self.test))
 
 
-def random_node_split(
-    num_nodes: int,
+def make_split(
+    usernames,
+    targets,
     train_ratio: float,
+    validation_ratio: float,
     test_ratio: float,
     seed: int,
-) -> GraphSplit:
-    """Randomly split the data, we provide the train and test ratio, the validation ration is 1 - (train_ration + test_ratio)"""
-    if not 0 < train_ratio < 1:
-        raise ValueError("train_ratio must be in (0, 1).")
-    if not 0 < test_ratio < 1:
-        raise ValueError("validation_ratio must be in (0, 1).")
-    if train_ratio + test_ratio >= 1:
-        raise ValueError("train_ratio + validation_ratio must be < 1.")
+    stratify: bool = True,
+) -> NodeSplit:
+    if not np.isclose(train_ratio + validation_ratio + test_ratio, 1.0):
+        raise ValueError("Split ratios must sum to 1")
+    names = np.asarray(usernames)
+    if len(set(names)) != len(names):
+        raise ValueError("Duplicate usernames in graph")
 
-    rng = np.random.default_rng(seed)
-    indices = rng.permutation(num_nodes)
-
-    train_end = int(num_nodes * train_ratio)
-    test_end = train_end + int(num_nodes * test_ratio)
-
-    return GraphSplit(
-        train=indices[:train_end],
-        test=indices[train_end:test_end],
-        validation=indices[test_end:],
+    strata = pd.qcut(np.asarray(targets), q=10, labels=False, duplicates="drop") if stratify else None
+    train, rest, _, strata_rest = train_test_split(
+        names,
+        strata if strata is not None else np.zeros(len(names)),
+        test_size=1 - train_ratio,
+        stratify=strata,
+        random_state=seed,
     )
 
-
-def save_split(split: GraphSplit, path: Path) -> None:
-    path.write_text(
-        json.dumps(split.as_json(), indent=4),
-        encoding="utf-8",
+    val, test = train_test_split(
+        rest,
+        test_size=test_ratio / (validation_ratio + test_ratio),
+        stratify=strata_rest if stratify else None,
+        random_state=seed,
     )
 
-
-def load_split(path: Path) -> GraphSplit:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return GraphSplit(
-        train=np.asarray(data["train"], dtype=np.int64),
-        test=np.asarray(data["test"], dtype=np.int64),
-        validation=np.asarray(data["validation"], dtype=np.int64),
-    )
+    meta = {
+        "method": "random_stratified" if stratify else "random",
+        "seed": seed,
+        "ratios": [train_ratio, validation_ratio, test_ratio],
+        "num_nodes": len(names),
+    }
+    return NodeSplit(train.tolist(), val.tolist(), test.tolist(), meta)
