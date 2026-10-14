@@ -28,7 +28,7 @@ class RunManager:
         run_dir.mkdir(parents=True, exist_ok=False)
         return run_id, run_dir
 
-    def _write_json(self, data, filename: str) -> None:
+    def write_json(self, data, filename: str) -> None:
         """Helper method to write a json file to the provided filename"""
         path = self.run_dir / filename
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,11 +60,6 @@ class RunManager:
             },
             path,
         )
-
-    def save_split(self, split: dict[str, list[int]], filename: str = "split.json") -> None:
-        """Saves data split indices. Creates a json file for each split."""
-        for key, item in split.items():
-            self._write_json(item, f"{key}.json")
 
     def save_config(self, config: dict[str, Any], filename: str = "config.yaml") -> None:
         """Saves the experiment YAML configuration."""
