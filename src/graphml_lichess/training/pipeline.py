@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+import yaml
 from torch import nn
 
 from graphml_lichess.data_processing.data_splits import random_node_split
@@ -12,7 +13,6 @@ from graphml_lichess.data_processing.graph_data_loader import LichessGraphLoader
 from graphml_lichess.models.model_factory import build_model
 from graphml_lichess.training.evaluator import evaluate_mask
 from graphml_lichess.training.trainer import Trainer, TrainingResult
-from graphml_lichess.utils.config import load_config
 from graphml_lichess.utils.logging import configure_logging
 from graphml_lichess.utils.run_manager import RunManager
 from graphml_lichess.utils.seeding import seed_everything
@@ -22,7 +22,7 @@ class TrainingPipeline:
     """Orchestrates the entire lifecycle of a single graph training run"""
 
     def __init__(self, config_path: Path):
-        self.config = load_config(config_path)
+        self.config = self._load_config(config_path)
 
         self.seed = int(self.config.get("seed", 42))
         seed_everything(self.seed)
@@ -33,6 +33,12 @@ class TrainingPipeline:
 
         self.logger = configure_logging(self.run_manager.run_dir / "train.log", self.run_manager.run_id)
         self.metadata = self.run_manager.collect_metadata(self.device, self.seed)
+
+    def _load_config(self, path: Path):
+        """Load yaml configuration file"""
+        assert path.exists(), f"Path to configuration does not exist, path was: {path}"
+        with path.open("r", encoding="utf-8") as handle:
+            return yaml.safe_load(handle)
 
     def _build_loss(self) -> nn.Module:
         """Get the method that will be used to compute loss"""
@@ -140,7 +146,7 @@ class TrainingPipeline:
         )
 
         info = {"metadata": self.metadata, "metrics": metrics}
-        self.run_manager.save_run_info(info)
+        self.run_manager._write_json(info, filename="run_info.json")
         self.logger.info("Best validation score: %.4f", result.best_validation_score)
         self.logger.info("Test score: %.4f", test_loss)
         self.logger.info("Saved artifacts to %s", self.run_manager.run_dir)

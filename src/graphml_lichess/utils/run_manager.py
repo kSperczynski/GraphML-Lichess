@@ -6,25 +6,30 @@ from pathlib import Path
 from typing import Any
 
 import torch
-
-from graphml_lichess.utils.config import save_yaml
+import yaml
 
 
 class RunManager:
+    """Helper class to capture the state of the model during training or tuning"""
+
     def __init__(self, base_dir: Path, prefix: str):
         self.base_dir = Path(base_dir)
         self.prefix = prefix
         self.run_id, self.run_dir = self._create_run_directory()
 
     def _create_run_directory(self) -> tuple[str, Path]:
-        """Creates the directory to save the data of the current run"""
+        """
+        Creates the directory to save the data of the current run
+        The directory name consists of: <prefix>_<timestamp>
+        """
         timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         run_id = f"{self.prefix}_{timestamp}"
         run_dir = self.base_dir / run_id
         run_dir.mkdir(parents=True, exist_ok=False)
         return run_id, run_dir
 
-    def _write_json(self, data: dict[str, Any], filename: str) -> None:
+    def _write_json(self, data, filename: str) -> None:
+        """Helper method to write a json file to the provided filename"""
         path = self.run_dir / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -57,20 +62,19 @@ class RunManager:
         )
 
     def save_split(self, split: dict[str, list[int]], filename: str = "split.json") -> None:
-        """Saves data split indices."""
-        self._write_json(split, filename)
+        """Saves data split indices. Creates a json file for each split."""
+        for key, item in split.items():
+            self._write_json(item, f"{key}.json")
 
     def save_config(self, config: dict[str, Any], filename: str = "config.yaml") -> None:
         """Saves the experiment YAML configuration."""
         path = self.run_dir / filename
-        save_yaml(config, path)
-
-    def save_run_info(self, info: dict, filename: str = "run_info.json") -> None:
-        self._write_json(info, filename)
+        with path.open("w", encoding="utf-8") as handle:
+            yaml.safe_dump(config, handle, sort_keys=False)
 
     @staticmethod
     def collect_metadata(device: torch.device, seed: int) -> dict[str, Any]:
-        """Collects environment and git metadata. Kept static as it doesn't rely on run state."""
+        """Collects environment and git metadata."""
         try:
             git_commit = subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, text=True, timeout=2.0

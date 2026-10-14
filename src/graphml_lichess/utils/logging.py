@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 def configure_logging(log_path: Path, run_id: str) -> logging.Logger:
+    """Helper method to set up logging, writes both to the terminal, and a log file in the run directory"""
     logger = logging.getLogger("lichess_gat")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
