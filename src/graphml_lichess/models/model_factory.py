@@ -1,26 +1,60 @@
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+
+import torch
+from sklearn.linear_model import Ridge
 from torch import nn
-from torch_geometric.nn import GAT
+from torch_geometric.nn.models import GAT
 
-from graphml_lichess.models.gat import CustomGATRegressor
+from graphml_lichess.models.custom_gat import CustomGATRegressor
+from graphml_lichess.training.regressors import Regressor, SklearnRegressor, TorchRegressor, TrainConfig
+
+MODEL_REGISTRY: dict[str, Callable[..., Regressor]] = {}
 
 
-def build_model(input_dim, edge_dim, config) -> nn.Module:
-    model_cfg = config["model"]
-    if config["name"] == "torch_gat":
-        return GAT(
-            in_channels=input_dim,
-            out_channels=model_cfg["out_channels"],
-            num_layers=model_cfg.get("num_layers", 1),
-            hidden_channels=model_cfg["hidden_channels"],
-            v2=model_cfg.get("v2", True),
-            act=model_cfg.get("act"),
-            act_first=model_cfg.get("act_first"),
-            dropout=model_cfg.get("dropout"),
-            heads=model_cfg.get("heads"),
-        )
+@dataclass
+class BuildContext:
+    train_cfg: TrainConfig
+    device: torch.device
+    logger: logging.Logger
 
-    elif config["name"] == "custom_gat":
-        return CustomGATRegressor()
+    def wrap_torch(self, model: nn.Module) -> TorchRegressor:
+        return TorchRegressor(model, self.train_cfg, self.device, self.logger)
 
-    else:
-        raise ValueError(f"Doesn't know a model with name: {config['name']}")
+
+def register(name: str):
+    """Decorator method to easily add models"""
+
+    def deco(fn):
+        if name in MODEL_REGISTRY:
+            raise ValueError(f"Model '{name}' registered twice")
+        MODEL_REGISTRY[name] = fn
+        return fn
+
+    return deco
+
+
+@register("torch_gat")
+def _torch_gat(input_dim, edge_dim, cfg, ctx):
+    model = GAT(in_channels=input_dim, **cfg)
+    return ctx.wrap_torch(model)
+
+
+@register("custom_gat")
+def _custom_gat(input_dim, edge_dim, cfg, ctx):
+    return ctx.wrap_torch(CustomGATRegressor(**cfg))
+
+
+@register("ridge")
+def _ridge(input_dim, edge_dim, cfg, ctx):
+    return SklearnRegressor(Ridge(**cfg))
+
+
+def build_model(input_dim, edge_dim, config, ctx) -> Regressor:
+    name = config["model_type"]
+    try:
+        builder = MODEL_REGISTRY[name]
+    except KeyError:
+        raise ValueError(f"Unknown model '{name}'. Available: {sorted(MODEL_REGISTRY)}") from None
+    return builder(input_dim, edge_dim, config.get("model", {}), ctx)
