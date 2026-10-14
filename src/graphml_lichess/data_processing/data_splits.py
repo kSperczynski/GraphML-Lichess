@@ -94,7 +94,7 @@ def make_split(
 
     meta = {
         "method": "random_stratified" if stratify else "random",
-        "seed": seed,
+        "data_split_seed": seed,
         "ratios": [train_ratio, validation_ratio, test_ratio],
         "num_nodes": len(names),
     }

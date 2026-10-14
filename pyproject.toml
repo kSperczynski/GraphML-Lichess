@@ -2,6 +2,9 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/graphml_lichess"]
+
 [project]
 name = "graphml-lichess"
 version = "0.1.0"
@@ -10,6 +13,7 @@ requires-python = ">=3.12"
 dependencies = [
     "ipykernel>=7.4.0",
     "matplotlib>=3.11.2",
+    "optuna>=5.0.0",
     "pandas>=3.0.6",
     "scikit-learn>=1.9.1",
     "torch>=2.14.1",
@@ -22,6 +26,9 @@ dev = [
     "pytest>=9",
     "ruff>=0.16.10",
 ]
+
+[project.scripts]
+graphml-lichess = "graphml_lichess.cli:cli"
 
 [tool.ruff]
 exclude = [".venv"]
