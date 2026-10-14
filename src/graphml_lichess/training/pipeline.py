@@ -68,7 +68,7 @@ class TrainingPipeline:
 
         self.run_manager = RunManager(
             base_dir=self.config["output"]["directory"],
-            prefix=self.config.get("name", "unkown"),
+            prefix=self.config.get("name", "john_doe"),
         )
         self.run_dir = self.run_manager.run_dir
         self.logger = configure_logging(self.run_dir / "train.log", self.run_manager.run_id)
