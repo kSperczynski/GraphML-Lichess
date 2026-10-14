@@ -4,5 +4,6 @@
 .venv
 .ruff_cache
 /runs/*
+/data/splits/*
 
 !.gitkeep

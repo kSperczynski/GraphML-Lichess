@@ -1,0 +1,27 @@
+name: default_torch_GAT  # So we can have multiple config files for the same model (with possibly different params)
+base: ../base.yaml
+model_type: torch_gat
+
+
+# https://pytorch-geometric.readthedocs.io/en/2.4.0/generated/torch_geometric.nn.models.GAT.html
+model:
+  hidden_channels: 128
+  out_channels: 1
+  num_layers: 3
+  v2: false
+  dropout: 0.20
+  act: relu
+  act_first: false
+  heads: 4
+
+training:
+  epochs: 50
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  patience: 50
+  gradient_clip_norm: 1.0
+  loss: huber
+  huber_delta: 1.0
+
+output:
+  directory: runs

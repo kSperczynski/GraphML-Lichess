@@ -1,0 +1,10 @@
+base: ../../config/models/torch_GAT.yaml
+name: default_torch_GAT_tuned
+model:
+  hidden_channels: 256
+  heads: 4
+  num_layers: 4
+  dropout: 0.026161831707880556
+training:
+  learning_rate: 0.00927645088532954
+  weight_decay: 0.000393735831915214

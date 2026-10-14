@@ -1,0 +1,6 @@
+name: ridge_example
+base: ../base.yaml
+model_type: ridge
+
+model:
+  alpha: 1.0

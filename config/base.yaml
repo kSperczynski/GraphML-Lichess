@@ -1,0 +1,41 @@
+seed: 42  # Model seed, so not used for data splitting
+
+data:
+  nodes: data/cleaned/nodes.csv
+  edges: data/cleaned/edges.csv
+  id_column: username
+  target_column: target_rating
+  feature_columns:
+    - acpl
+    - accuracy
+    - num_moves
+    - frac_blunders
+    - frac_mistakes
+    - frac_inaccuracies
+    - avg_move_time
+    - last_theory_ply
+    - win_streak
+    - loss_streak
+    - num_games
+    - win_rate
+    - loss_rate
+    - draw_rate
+  edge_feature_columns:
+    - points
+
+graph:
+  directed: true
+  add_self_loops: true
+
+split:
+  path: data/splits/2_split.json  # Used by every experiments
+
+  # Only used when creating a split
+  seed: 21
+  train_ratio: 0.70
+  validation_ratio: 0.15
+  test_ratio: 0.15
+  stratify: true
+
+output:
+  directory: runs/training
