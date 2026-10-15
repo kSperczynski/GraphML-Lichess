@@ -1,4 +1,4 @@
-name: ridge_example
+name: default_sklearn_ridge
 base: ../base.yaml
 model_type: ridge
 

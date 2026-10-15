@@ -123,9 +123,9 @@ def cli(argv=None) -> None:
     p.set_defaults(func=cmd_train)
 
     # Parser for tuning
-    p = sub.add_parser("tune", help="Optuna search on the validation split; writes configs/tuned/<model>.yaml")
+    p = sub.add_parser("tune", help="Optuna search on the validation split; writes config/tuned/<model>.yaml")
     add_config(p)
-    p.add_argument("--search", type=Path, help="Search space YAML (default: configs/search/<config name>.yaml)")
+    p.add_argument("--search", type=Path, help="Search space YAML (default: config/search/<config name>.yaml)")
     p.add_argument("--trials", type=int, help="Override n_trials from the search file")
     p.set_defaults(func=cmd_tune)
 

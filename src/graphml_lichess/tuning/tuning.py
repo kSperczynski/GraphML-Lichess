@@ -30,13 +30,15 @@ def tune(
     config_path: Path,
     logger: logging.Logger,
     n_trials: int | None = None,
-    tuned_dir: Path = Path("configs/tuned"),
+    tuned_dir: Path = Path("config/tuned"),
     work_dir: Path = Path("runs/tuning"),
 ) -> Path:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    graph, masks, _, split = prepare_data(config)  # once, shared by every trial
     name = config["name"]
     n_trials = n_trials or int(search["n_trials"])
+
+    # Load the graph once, we share it across the experiments
+    graph, masks, _, split = prepare_data(config)
 
     work_dir = work_dir / name
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -45,10 +47,11 @@ def tune(
         cfg = copy.deepcopy(config)
         for key, spec in search["params"].items():
             set_path(cfg, key, _suggest(trial, key, spec))
-        seed_everything(int(cfg["seed"]))  # same seed every trial, so differences come from params
+        seed_everything(int(cfg["seed"]))  # same seed every trial, so differences is only params
         regressor = build_regressor(cfg, graph.data, device, logger)
 
         def on_epoch(epoch: int, score: float) -> None:
+            """Call back function, used in the training loop of deep learning methods"""
             trial.report(score, epoch)
             if trial.should_prune():
                 raise optuna.TrialPruned()
@@ -71,6 +74,7 @@ def tune(
     best: dict = {}
     for key, value in study.best_params.items():
         set_path(best, key, value)
+
     tuned_dir.mkdir(parents=True, exist_ok=True)
     tuned_path = tuned_dir / f"{config_path.stem}.yaml"
     tuned = {
@@ -89,7 +93,7 @@ def tune(
                 "n_trials": len(study.trials),
                 "split": split.fingerprint,
             },
-            indent=2,
+            indent=4,
         )
     )
     logger.info("Best val %s=%.4f -> %s", config["training"].get("monitor", "mae"), study.best_value, tuned_path)

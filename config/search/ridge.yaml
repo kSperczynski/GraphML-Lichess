@@ -1,5 +1,3 @@
-name: default_sklearn_ridge
-model_type: ridge
 n_trials: 40
 
 params:

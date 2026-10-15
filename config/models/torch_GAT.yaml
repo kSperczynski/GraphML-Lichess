@@ -22,6 +22,3 @@ training:
   gradient_clip_norm: 1.0
   loss: huber
   huber_delta: 1.0
-
-output:
-  directory: runs
