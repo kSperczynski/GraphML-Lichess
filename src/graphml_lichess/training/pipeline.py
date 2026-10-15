@@ -27,6 +27,7 @@ def load_graph(config: dict):
         edge_feature_columns=list(cfg["edge_feature_columns"]),
         directed=bool(config["graph"]["directed"]),
         add_self_loops=bool(config["graph"].get("add_self_loops", True)),
+        add_zero_edges=bool(config["graph"].get("add_zero_edges", False)),
     ).load()
 
 

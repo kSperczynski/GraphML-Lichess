@@ -26,6 +26,7 @@ data:
 graph:
   directed: true
   add_self_loops: true
+  add_zero_egdes: false
 
 split:
   path: data/splits/2_split.json  # Used by every experiments

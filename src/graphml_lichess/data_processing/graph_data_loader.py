@@ -28,6 +28,7 @@ class LichessGraphLoader:
         edge_feature_columns: list[str],
         directed: bool = True,
         add_self_loops: bool = True,
+        add_zero_edges: bool = False,
         logger: logging.Logger | None = None,
     ) -> None:
         self.nodes_path = nodes_path
@@ -94,6 +95,9 @@ class LichessGraphLoader:
             if edge_attr_tensor.shape[1]:
                 loop_attr = torch.zeros((len(nodes), edge_attr_tensor.shape[1]), dtype=torch.float32)
                 edge_attr_tensor = torch.cat([edge_attr_tensor, loop_attr], dim=0)
+
+        if self.add_zero_edges:
+            raise NotImplementedError("Add logic to add zero edges here")
 
         data = Data(
             x=torch.tensor(x, dtype=torch.float32),
