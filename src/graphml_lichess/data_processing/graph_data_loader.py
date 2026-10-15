@@ -39,6 +39,7 @@ class LichessGraphLoader:
         self.edge_feature_columns = edge_feature_columns
         self.directed = directed
         self.add_self_loops = add_self_loops
+        self.add_zero_edges = add_zero_edges
         self.logger = logger or logging.getLogger("lichess_gat")
 
     def load(self) -> GraphData:
