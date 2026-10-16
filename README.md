@@ -24,9 +24,9 @@ To add a model, write a new file there, register a builder for it in `models/mod
 You need to create a data split before you use it in a training / tuning run. If you want to use another one, update the name in the `base config` file. If you don't, you'll get an error that the data split already exists. You can overwrite it with `--force` if you really want, but keep in mind that this invalidates all comparisons with runs that used the split before you overwrite it.
 
 ```bash
-graphml-lichess make-split --config configs/base.yaml
-graphml-lichess tune   --config configs/models/torch_gat.yaml
-graphml-lichess train  --config configs/tuned/torch_gat.yaml --seeds 0 1 2 3 4
+graphml-lichess make-split --config config/base.yaml
+graphml-lichess tune   --config config/models/torch_GAT.yaml
+graphml-lichess train  --config config/tuned/torch_GAT.yaml --seeds 0 1 2 3 4
 graphml-lichess report
 ```
 

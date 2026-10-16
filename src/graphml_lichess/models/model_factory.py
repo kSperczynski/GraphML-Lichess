@@ -8,6 +8,7 @@ from torch import nn
 from torch_geometric.nn.models import GAT
 
 from graphml_lichess.models.custom_gat import CustomGATRegressor
+from graphml_lichess.models.dirgnn import AnalyticalAttentionNetwork
 from graphml_lichess.training.regressors import Regressor, SklearnRegressor, TorchRegressor, TrainConfig
 
 MODEL_REGISTRY: dict[str, Callable[..., Regressor]] = {}
@@ -49,6 +50,16 @@ def _custom_gat(input_dim, edge_dim, cfg, ctx):
 @register("ridge")
 def _ridge(input_dim, edge_dim, cfg, ctx):
     return SklearnRegressor(Ridge(**cfg))
+
+
+@register("dirgnn")
+def _dirgnn(input_dim, edge_dim, cfg, ctx):
+    model = AnalyticalAttentionNetwork(cfg)
+    dirgnn = TorchRegressor(model, ctx.train_cfg, ctx.device, ctx.logger)
+    dirgnn.optimizer = torch.optim.SGD(
+        model.parameters(), lr=ctx.train_cfg.learning_rate, weight_decay=ctx.train_cfg.weight_decay, momentum=0.9
+    )
+    return dirgnn
 
 
 def build_model(input_dim, edge_dim, config, ctx) -> Regressor:
