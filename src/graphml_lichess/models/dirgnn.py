@@ -142,4 +142,6 @@ class AnalyticalAttentionNetwork(nn.Module):
         for layer in self.decode_mlp:
             x = layer.forward(x)
 
+        x = torch.clamp(x, min=-1e10, max=1e10)  # loss may overflow and causes optimization to be NaN
+
         return x

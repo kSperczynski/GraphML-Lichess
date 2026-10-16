@@ -1,0 +1,10 @@
+base: ../models/dirGNN.yaml
+name: dirgnn_tuned
+model:
+  mp_latent_features: 128
+  mp_output_features: 14
+  num_mp_layers: 6
+  num_nodewise_layers: 1
+training:
+  learning_rate: 1.6004643799215936
+  weight_decay: 1.4418961473459702e-06
