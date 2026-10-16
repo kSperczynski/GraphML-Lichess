@@ -9,6 +9,7 @@ from torch_geometric.nn.models import GAT
 
 from graphml_lichess.models.custom_gat import CustomGATRegressor
 from graphml_lichess.models.dirgnn import AnalyticalAttentionNetwork
+from graphml_lichess.models.mlp import MLP
 from graphml_lichess.training.regressors import Regressor, SklearnRegressor, TorchRegressor, TrainConfig
 
 MODEL_REGISTRY: dict[str, Callable[..., Regressor]] = {}
@@ -60,6 +61,11 @@ def _dirgnn(input_dim, edge_dim, cfg, ctx):
         model.parameters(), lr=ctx.train_cfg.learning_rate, weight_decay=ctx.train_cfg.weight_decay, momentum=0.9
     )
     return dirgnn
+
+
+@register("mlp")
+def _mlp(input_dim, edge_dim, cfg, ctx):
+    return ctx.wrap_torch(MLP(input_dim=input_dim, **cfg))
 
 
 def build_model(input_dim, edge_dim, config, ctx) -> Regressor:

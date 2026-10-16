@@ -35,3 +35,33 @@ graphml-lichess report
 For more options to pass to the CLI, look at the `src/graphml_lichess/cli.py` file.
 
 The logs of a tuning run should automatically be stored at `runs/tuning`, a training run should automatically be stored at `runs/training`.
+
+## MLP baseline
+
+The registered `mlp` model predicts ratings from each player's own features and
+ignores graph edges. Input width follows the shared feature list. The initial
+network uses hidden widths 64/32, ReLU, dropout 0.1 and one linear output.
+
+Run from the repository root, after preparing the environment and the agreed
+split. If that split is absent, create it once with `make-split`; do not use
+`--force` to replace an existing shared split just to add the MLP.
+
+```bash
+graphml-lichess make-split --config config/base.yaml
+graphml-lichess train --config config/models/mlp.yaml --seeds 42 43 44
+graphml-lichess tune --config config/models/mlp.yaml --search config/search/mlp.yaml
+graphml-lichess train --config config/tuned/mlp.yaml --seeds 42 43 44
+```
+
+MLP training uses the shared AdamW loop, MSE on raw ratings, and validation RMSE
+for checkpoint selection. Feature scaling is fitted on training players only.
+RMSE and MSE select the same checkpoint on a fixed validation set. Predictions
+and metrics stay in rating units. The search covers dropout, learning rate and
+weight decay; hidden widths are fixed. Freeze the experimental configuration
+before final test evaluation.
+
+This integration does not change DirGNN, GAT, Ridge, data cleaning or the shared
+split defaults. The current cleaned data contains 7,181 players, so the previous
+4,494-player MLP tuning results must not be presented as results on this data.
+No old tuned configuration is carried over. The initial 200-epoch MLP config is
+an integration starting point, not a validated optimal configuration.

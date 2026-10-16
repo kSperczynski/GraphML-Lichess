@@ -70,11 +70,12 @@ def cmd_report(args) -> None:
 
         info = json.loads(info_path.read_text())
         metrics = json.loads(metrics_path.read_text())
+        metadata = info.get("metadata", {})
         rows.append(
             {
                 "model": info.get("name"),
-                "split": info.get("data_split_fingerprint"),
-                "seed": info.get("seed"),
+                "split": info.get("data_split_fingerprint", metadata.get("data_split_fingerprint")),
+                "seed": info.get("model_seed", info.get("seed", metadata.get("seed"))),
                 **{f"val_{k}": v for k, v in metrics["validation"].items()},
                 **{f"test_{k}": v for k, v in metrics["test"].items()},
             }
