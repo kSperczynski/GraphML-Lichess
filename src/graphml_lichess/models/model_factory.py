@@ -62,6 +62,16 @@ def _dirgnn(input_dim, edge_dim, cfg, ctx):
     return dirgnn
 
 
+@register("dirgnn_no_zero_edges")
+def _dirgnn_no_zero_edges(input_dim, edge_dim, cfg, ctx):
+    model = AnalyticalAttentionNetwork(cfg)
+    dirgnn = TorchRegressor(model, ctx.train_cfg, ctx.device, ctx.logger)
+    dirgnn.optimizer = torch.optim.SGD(
+        model.parameters(), lr=ctx.train_cfg.learning_rate, weight_decay=ctx.train_cfg.weight_decay, momentum=0.9
+    )
+    return dirgnn
+
+
 def build_model(input_dim, edge_dim, config, ctx) -> Regressor:
     name = config["model_type"]
     try:

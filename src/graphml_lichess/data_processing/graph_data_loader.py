@@ -30,6 +30,7 @@ class LichessGraphLoader:
         directed: bool = True,
         add_self_loops: bool = True,
         add_zero_edges: bool = False,
+        remove_added_zero_edges: bool = False,
         replace_edge_features_with_attention: bool = False,
         chisquare_adjust_for_attention: int = 0,
         logger: logging.Logger | None = None,
@@ -43,6 +44,7 @@ class LichessGraphLoader:
         self.directed = directed
         self.add_self_loops = add_self_loops
         self.add_zero_edges = add_zero_edges
+        self.remove_added_zero_edges = remove_added_zero_edges
         self.replace_edge_features_with_attention = replace_edge_features_with_attention
         self.chisquare_adjust_for_attention = chisquare_adjust_for_attention
         self.logger = logger or logging.getLogger("lichess_gat")
@@ -107,9 +109,15 @@ class LichessGraphLoader:
                 edge_attr_tensor = torch.cat([edge_attr_tensor, loop_attr], dim=0)
 
         if self.replace_edge_features_with_attention:
-            edge_attr_tensor = self._construct_attention_edge_features(
+            edge_attr_attention_tensor = self._construct_attention_edge_features(
                 torch.tensor(x, dtype=torch.float32), edge_index, edge_attr_tensor
             )
+            if self.remove_added_zero_edges:
+                edge_index, edge_attr_tensor = self._remove_zero_edges(
+                    edge_attr_tensor, edge_attr_attention_tensor, edge_index
+                )
+            else:
+                edge_attr_tensor = edge_attr_attention_tensor
 
         data = Data(
             x=torch.tensor(x, dtype=torch.float32),
@@ -262,3 +270,16 @@ class LichessGraphLoader:
         print(f"Adding zero edges, before: {num_edges_before} edges, after: {num_edges_after}.")
 
         return edges
+
+    def _remove_zero_edges(self, old_edge_attrs: torch.Tensor, edge_attrs: torch.Tensor, edge_index: torch.Tensor):
+
+        assert old_edge_attrs.shape[1] == 1, "ERR: edge attributes expect size-1 edge feature"
+
+        # check if old edge attributes were zero -> need removal
+        indices_where_zero = (old_edge_attrs == 0.0).squeeze(-1)
+
+        # create new index & new features
+        updated_index = edge_index[:, ~indices_where_zero]
+        updated_attrs = edge_attrs[~indices_where_zero]
+
+        return updated_index, updated_attrs

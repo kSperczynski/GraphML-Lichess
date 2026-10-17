@@ -1,0 +1,10 @@
+base: ../models/dirGNN_no_zero_edges.yaml
+name: dirgnn_no_zero_edges_tuned
+model:
+  mp_latent_features: 64
+  mp_output_features: 14
+  num_mp_layers: 6
+  num_nodewise_layers: 1
+training:
+  learning_rate: 1.1294923622078905
+  weight_decay: 2.67308831078167e-05

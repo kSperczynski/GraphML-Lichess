@@ -1,0 +1,29 @@
+name: dirgnn_no_zero_edges
+base: ../base.yaml
+model_type: dirgnn_no_zero_edges
+
+model:
+  mp_input_features: 14
+  mp_latent_features: 16
+  mp_output_features: 16
+  mp_bias: false
+  num_mp_layers: 4
+  dir_alpha: 1.0
+  num_nodewise_layers: 1
+  device: "cuda"
+
+training:
+  epochs: 200
+  learning_rate: 2e-1
+  weight_decay: 5e-5
+  patience: 300
+  gradient_clip_norm: 1.0
+
+graph:
+  directed: true
+  add_self_loops: false
+  add_zero_edges: true
+  remove_added_zero_edges: true
+  replace_edge_features_with_attention: true
+  chisquare_adjust: 25
+  loss: mse

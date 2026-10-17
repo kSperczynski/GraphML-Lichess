@@ -28,6 +28,7 @@ def load_graph(config: dict):
         directed=bool(config["graph"]["directed"]),
         add_self_loops=bool(config["graph"].get("add_self_loops", True)),
         add_zero_edges=bool(config["graph"].get("add_zero_edges", False)),
+        remove_added_zero_edges=bool(config["graph"].get("remove_added_zero_edges", False)),
         replace_edge_features_with_attention=bool(config["graph"].get("replace_edge_features_with_attention", False)),
         chisquare_adjust_for_attention=int(config["graph"].get("chisquare_adjust", 0)),
     ).load()
