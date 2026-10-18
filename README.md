@@ -35,3 +35,10 @@ graphml-lichess report
 For more options to pass to the CLI, look at the `src/graphml_lichess/cli.py` file.
 
 The logs of a tuning run should automatically be stored at `runs/tuning`, a training run should automatically be stored at `runs/training`.
+
+## Packages
+
+Most is handled via `uv`. However, `uv` might be unable to resolve the `pyg-lib` dependency needed for the Dominant model in the PyGOD package. You can install it locally with:
+```
+uv pip install pyg-lib --find-links "https://data.pyg.org/whl/torch-2.14.0+cpu.html"
+```

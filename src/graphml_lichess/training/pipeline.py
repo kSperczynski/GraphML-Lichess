@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from pygod.detector import DOMINANT
 
 from graphml_lichess.data_processing.data_splits import Masks, NodeSplit
 from graphml_lichess.data_processing.feature_preprocessing import FeaturePreprocessor
@@ -146,3 +147,66 @@ class TrainingPipeline:
         except Exception:
             self.logger.exception("Training pipeline failed")
             raise
+
+class ExplainabilityPipeline:
+    """Runs explainability experiments."""
+
+    def __init__(self, config: dict):
+        self.config = config
+
+        self.run_manager = RunManager(
+            base_dir=self.config["output"]["directory"], # inherits from base yaml
+            prefix=self.config.get("name", "john_doe"),
+        )
+        self.run_dir = self.run_manager.run_dir
+
+    def _save_results(
+            self, 
+            graph,
+            predicted_mask: torch.Tensor, 
+            predicted_scores: torch.Tensor, 
+            predicted_probabilities: torch.Tensor, 
+            predicted_confidence: torch.Tensor
+        ) -> None:
+        pd.DataFrame(
+            {
+                "username": np.asarray(graph.usernames),
+                "predicted_mask": predicted_mask,
+                "predicted_scores": predicted_scores,
+                "predicted_probabilities": predicted_probabilities,
+                "predicted_confidence": predicted_confidence
+            }
+        ).to_csv(self.run_dir / "predicted_outliers.csv", index=False)
+
+    def run(self):
+
+        # load all available data
+        graph, masks, feature_processor, split = prepare_data(self.config)
+
+        # get the data
+        data = graph.data
+
+        # create the model
+        dominant_model = DOMINANT(
+            hid_dim=self.config["model"]["hid_dim"],
+            num_layers=self.config["model"]["num_layers"],
+            dropout=self.config["model"]["dropout"],
+            weight_decay=self.config["training"]["weight_decay"],
+            contamination=self.config["model"]["contamination"],
+            lr=self.config["training"]["learning_rate"],
+            epoch=self.config["training"]["epochs"]
+        )
+
+        # fit
+        dominant_model.fit(data=data, label=None) # <-- no labels
+
+        # get the predictions
+        pred, score, prob, conf = dominant_model.predict(data, return_pred=True, return_score=True, return_prob=True, return_conf=True, prob_method=self.config["predictions"]["probability-type"])
+
+        # predictions
+        self._save_results(graph, pred, score, prob, conf)
+
+        # inform
+        print(f'Predictions saved to {self.run_dir / "predicted_outliers.csv"}')
+        print(f'Predicted {pred.sum().item()} outliers.')
+
