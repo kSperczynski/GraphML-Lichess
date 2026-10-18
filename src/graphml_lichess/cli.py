@@ -164,6 +164,13 @@ def cli(argv=None) -> None:
     p.add_argument("--runs-dir", type=Path, default=Path("runs", "training"))
     p.set_defaults(func=cmd_report)
 
+    # Read saved artifacts without starting any new model training.
+    from graphml_lichess.analysis.__main__ import add_arguments, run_analysis
+
+    p = sub.add_parser("analyze", help="Summarize runs and plot models or alpha/zero-edge sweeps")
+    add_arguments(p)
+    p.set_defaults(func=run_analysis)
+
     args = parser.parse_args(argv)
     args.func(args)
 
