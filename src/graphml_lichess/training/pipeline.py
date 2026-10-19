@@ -5,6 +5,9 @@ import numpy as np
 import pandas as pd
 import torch
 from pygod.detector import DOMINANT
+from torch_geometric.explain import Explainer, Explanation, GNNExplainer
+from torch_geometric.data import Data
+from torch_geometric.utils import to_dense_adj
 
 from graphml_lichess.data_processing.data_splits import Masks, NodeSplit
 from graphml_lichess.data_processing.feature_preprocessing import FeaturePreprocessor
@@ -148,6 +151,55 @@ class TrainingPipeline:
             self.logger.exception("Training pipeline failed")
             raise
 
+
+class InterfaceModel(torch.nn.Module):
+    """
+    Abstraction model that serves as an interface between the GNNExplainer and Dominant for compatibility.
+
+    Notes:
+    - Dominant's forward pass returns two tensors, X_pred [N x 14] and Adj [N x N]
+    - Dominant exposes a `predict` function, but it appears non-differentiable somewhere in between.
+    - Score computation according to eq. (3.11) from the paper "Deep Anomaly Detection on Attributed Networks"
+
+    This interface model implements a forward pass that translates the results of Dominant to the Dominant score.
+    """
+
+    def __init__(self, dominant_backbone: DOMINANT, data, config, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.dominant_backbone = dominant_backbone
+        self.dominant_backbone.model.requires_grad_(True)
+        self.data = data
+        self.config = config
+
+    def forward(self, x, edge_index):
+
+        # forward pass of the full Dominant
+        xs, A = self.dominant_backbone.model.forward(x, edge_index)
+
+        # compute score ourselves -> while Dominant provides a `predict` function, it seems to drop gradients somewhere along the way, and I could not figure out how to make it compatible with GNNExplainer
+        xs_component = ((xs - x)**2.0).sum(dim=-1)
+        adj_component = ((A - to_dense_adj(edge_index))**2.0).sum(dim=-1).squeeze(0) # necessary squeeze, don't remove; otherwise [1, N]
+
+        # double check, but to my understanding this is the alpha from (3.11) in the paper.
+        alpha = self.dominant_backbone.weight
+
+        score = alpha * xs_component + (1 - alpha) * adj_component ## WARN! if the shapes do not match, an arbitrary masking error will appear. Check the assert below.
+        assert xs_component.shape == adj_component.shape, f'ERR: shapes do not match: {xs_component.shape} and {adj_component.shape}'
+
+        ### Probability Computation
+        # mirror computation of the probability via the linear algorithm of Dominant
+        # for details, see `.venv/lib/python3.12/site-packages/pygod/detector/base.py:195`
+        # or search for `prob = self._predict_prob(score, prob_method)` in VSCode in the full directory (incl. the venv)
+        train_score = self.dominant_backbone.decision_score_
+        prob = score - train_score.min()
+        prob /= train_score.max() - train_score.min()
+        prob = prob.clamp(0, 1)
+        ###
+
+        return prob
+    
+
 class ExplainabilityPipeline:
     """Runs explainability experiments."""
 
@@ -160,7 +212,7 @@ class ExplainabilityPipeline:
         )
         self.run_dir = self.run_manager.run_dir
 
-    def _save_results(
+    def _save_outlier_info(
             self, 
             graph,
             predicted_mask: torch.Tensor, 
@@ -177,6 +229,20 @@ class ExplainabilityPipeline:
                 "predicted_confidence": predicted_confidence
             }
         ).to_csv(self.run_dir / "predicted_outliers.csv", index=False)
+
+        print(f'Outlier info saved to {self.run_dir / "predicted_outliers.csv"}')
+
+
+    def _save_explanation(self, explanation: Explanation):
+        """
+        TODO: save more info
+        """
+
+        # bar plot, feature importance
+        explanation.visualize_feature_importance(self.run_dir / "feature_importance.png")
+
+        # inform
+        print(f'Feature importance saved to {self.run_dir / "feature_importance.png"}')
 
     def run(self):
 
@@ -200,13 +266,49 @@ class ExplainabilityPipeline:
         # fit
         dominant_model.fit(data=data, label=None) # <-- no labels
 
-        # get the predictions
+        # (INFO) this is an alternative to the custom score calculation inside the forward() of the InterfaceModel; however, gradients are removed somewhere in between
+        # we still want predictions: allows us to explain only the nodes that were flagged as outliers hence this line still is needed.
         pred, score, prob, conf = dominant_model.predict(data, return_pred=True, return_score=True, return_prob=True, return_conf=True, prob_method=self.config["predictions"]["probability-type"])
-
-        # predictions
-        self._save_results(graph, pred, score, prob, conf)
-
-        # inform
-        print(f'Predictions saved to {self.run_dir / "predicted_outliers.csv"}')
+        
+        # debug, inform
         print(f'Predicted {pred.sum().item()} outliers.')
+
+        # save outlier info
+        self._save_outlier_info(graph, pred, score, prob, conf)
+
+        # create interface model, see class docstring for details
+        interface_model = InterfaceModel(dominant_backbone=dominant_model, data=data, config=self.config)
+        # an alternative would be to overwrite the Dominant forward-pass function with the score computation similarly to:
+        # dominant_model.model.forward = lambda x_edge_tuple: ...
+        # but the interface model above might be a cleaner approach.
+
+        explainer = Explainer(
+            model=interface_model,
+            algorithm=GNNExplainer(epochs=100), # TODO: add to config
+            explanation_type='model',
+            node_mask_type='attributes',
+            # edge_mask_type='object', # -> ValueError: Could not compute gradients for edges. Please make sure that edges are used via message passing inside the model or disable it via `edge_mask_type=None`.
+            edge_mask_type=None, 
+            model_config=dict(
+                mode='binary_classification',
+                task_level='node',
+                return_type='probs',
+            ),
+        )
+
+        # Explanation for all nodes detected as outliers:
+        # node_index = torch.arange(start=0, end=pred.shape[0]-1, step=1)[pred]
+
+        # Explanation for the first outlier:
+        node_index = torch.arange(start=0, end=pred.shape[0]-1, step=1)[pred][0] # <- 0th index = single outlier
+
+        explanation: Explanation = explainer(data.x, data.edge_index, index=node_index)
+
+        # debug print
+        print(explanation)
+
+        # save results (TODO: extend this)
+        self._save_explanation(explanation)
+
+        
 
