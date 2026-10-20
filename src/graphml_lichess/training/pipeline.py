@@ -19,6 +19,9 @@ from graphml_lichess.utils.logging import configure_logging
 from graphml_lichess.utils.run_manager import RunManager
 from graphml_lichess.utils.seeding import seed_everything
 
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+
 
 def load_graph(config: dict):
     cfg = config["data"]
@@ -212,6 +215,32 @@ class ExplainabilityPipeline:
         )
         self.run_dir = self.run_manager.run_dir
 
+    def _save_feature_reconstruction_errors(self, graph, dominant_model, outlier_mask, top_k: int = 5):
+        """Per-outlier, per-feature squared reconstruction error."""
+        feature_names = list(self.config["data"]["feature_columns"])
+        model = dominant_model.model
+        device = next(model.parameters()).device
+
+        model.eval()
+        with torch.no_grad():
+            x = graph.data.x.to(device)
+            x_hat, _ = model(x, graph.data.edge_index.to(device))
+
+        sq_err = ((x_hat - x) ** 2).cpu()                  # [N, F]
+        outlier_idx = torch.nonzero(outlier_mask).squeeze(-1)
+        err = sq_err[outlier_idx].numpy()                  # [n_outliers, F]
+        usernames = np.asarray(graph.usernames)[outlier_idx.numpy()]
+
+        df = pd.DataFrame(err, columns=feature_names)
+        df.insert(0, "username", usernames)
+        df.to_csv(self.run_dir / "outlier_feature_errors.csv", index=False)
+
+        share = err / err.sum(axis=1, keepdims=True)
+        pd.DataFrame(share, columns=feature_names).assign(username=usernames).to_csv(
+            self.run_dir / "outlier_feature_error_share.csv", index=False
+        )
+
+
     def _save_outlier_info(
             self, 
             graph,
@@ -244,6 +273,62 @@ class ExplainabilityPipeline:
         # inform
         print(f'Feature importance saved to {self.run_dir / "feature_importance.png"}')
 
+
+    def _cluster_outliers(self, graph, dominant_model, outlier_mask, k_range=range(2, 7)):
+        feature_names = list(self.config["data"]["feature_columns"])
+        model = dominant_model.model
+        device = next(model.parameters()).device
+
+        model.eval()
+        with torch.no_grad():
+            x = graph.data.x.to(device)
+            edge_index = graph.data.edge_index.to(device)
+            x_hat, a_hat = model(x, edge_index)
+            a = to_dense_adj(edge_index, max_num_nodes=x.shape[0]).squeeze(0)
+            attr_err = ((x_hat - x) ** 2).cpu().numpy()
+            struct_err = ((a_hat - a) ** 2).sum(dim=-1).cpu().numpy()
+
+        def zlog(v):
+            v = np.log1p(v)
+            return (v - v.mean(0)) / (v.std(0) + 1e-12)
+
+        profile = np.column_stack([zlog(attr_err), zlog(struct_err[:, None])])
+        columns = feature_names + ["structure"]
+
+        idx = torch.nonzero(outlier_mask).squeeze(-1).cpu().numpy()
+        X = profile[idx]
+        usernames = np.asarray(graph.usernames)[idx]
+
+        if len(idx) < 4:
+            print("Too few outliers to cluster.")
+            return
+
+        # pick k by silhouette score
+        best_k, best_score = None, -1.0
+        for k in k_range:
+            if k >= len(idx):
+                break
+            labels = KMeans(n_clusters=k, n_init=20, random_state=self.config.get("seed", 0)).fit_predict(X)
+            score = silhouette_score(X, labels)
+            print(f"k={k}: silhouette={score:.3f}")
+            if score > best_score:
+                best_k, best_score = k, score
+
+        labels = KMeans(n_clusters=best_k, n_init=20, random_state=self.config.get("seed", 0)).fit_predict(X)
+        print(f"Chose k={best_k} (silhouette={best_score:.3f})")
+
+        pd.DataFrame({
+            "username": usernames,
+            "cluster": labels,
+            "attr_error_total": attr_err[idx].sum(axis=1),
+            "struct_error_total": struct_err[idx],
+        }).to_csv(self.run_dir / "outlier_clusters.csv", index=False)
+
+        prof = pd.DataFrame(X, columns=columns).assign(cluster=labels).groupby("cluster").mean()
+        prof.insert(0, "size", np.bincount(labels))
+        prof.to_csv(self.run_dir / "outlier_cluster_profiles.csv")
+
+
     def run(self):
 
         # load all available data
@@ -269,6 +354,9 @@ class ExplainabilityPipeline:
         # (INFO) this is an alternative to the custom score calculation inside the forward() of the InterfaceModel; however, gradients are removed somewhere in between
         # we still want predictions: allows us to explain only the nodes that were flagged as outliers hence this line still is needed.
         pred, score, prob, conf = dominant_model.predict(data, return_pred=True, return_score=True, return_prob=True, return_conf=True, prob_method=self.config["predictions"]["probability-type"])
+
+        self._cluster_outliers(graph, dominant_model, pred)
+        self._save_feature_reconstruction_errors(graph, dominant_model, pred)
         
         # debug, inform
         print(f'Predicted {pred.sum().item()} outliers.')
