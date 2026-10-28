@@ -42,3 +42,7 @@ Most is handled via `uv`. However, `uv` might be unable to resolve the `pyg-lib`
 ```
 uv pip install pyg-lib --find-links "https://data.pyg.org/whl/torch-2.14.0+cpu.html"
 ```
+or
+```
+uv pip install pyg-lib --find-links "https://data.pyg.org/whl/torch-2.14.0+cu132.html"
+```
