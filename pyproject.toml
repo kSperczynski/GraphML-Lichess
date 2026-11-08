@@ -18,6 +18,7 @@ dependencies = [
     "scikit-learn>=1.9.1",
     "torch>=2.14.1",
     "torch-geometric>=2.8.0.post1",
+    "seaborn>=0.13.0"
 ]
 
 [dependency-groups]
@@ -29,6 +30,7 @@ dev = [
 
 [project.scripts]
 graphml-lichess = "graphml_lichess.cli:cli"
+graphml-experiments = "graphml_lichess.analysis.__main__:main"
 
 [tool.ruff]
 exclude = [".venv"]

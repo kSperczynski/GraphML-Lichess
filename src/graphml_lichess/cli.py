@@ -50,6 +50,30 @@ def cmd_train(args) -> None:
         print(f"[seed {seed}] -> {run_dir}")
 
 
+def cmd_train_multiple_alphas(args) -> None:
+    """Method for training models with multiple different alphas."""
+    config = load_config(args.config, args.set)
+
+    assert "dir_alpha" in config["model"], "ERR: trying to train a model that does not take dir_alpha with multiple alphas"
+
+    # use different alpha params
+    DIR_ALPHAS = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
+
+    for dir_alpha in DIR_ALPHAS:
+        # run each alpha on multiple seeds
+        for seed in args.seeds or [config.get("seed", 42)]:
+            run_config = copy.deepcopy(config)
+
+            # set seed
+            run_config["seed"] = seed
+
+            # set alpha
+            run_config["model"]["dir_alpha"] = dir_alpha
+
+            run_dir = TrainingPipeline(run_config).run()
+            print(f"[seed {seed}] -> {run_dir}")
+
+
 def cmd_tune(args) -> None:
     """Method for tuning the models."""
     config = load_config(args.config, args.set)
@@ -123,6 +147,12 @@ def cli(argv=None) -> None:
     p.add_argument("--seeds", type=int, nargs="+", help="Run once per model seed")
     p.set_defaults(func=cmd_train)
 
+    # Parser for training with multiple alphas
+    p = sub.add_parser("train-alphas", help="Train + evaluate multiple models with different alphas on the shared split")
+    add_config(p)
+    p.add_argument("--seeds", type=int, nargs="+", help="Run once per model seed")
+    p.set_defaults(func=cmd_train_multiple_alphas)
+
     # Parser for tuning
     p = sub.add_parser("tune", help="Optuna search on the validation split; writes config/tuned/<model>.yaml")
     add_config(p)
@@ -134,6 +164,13 @@ def cli(argv=None) -> None:
     p = sub.add_parser("report", help="Aggregate finished runs into a comparison table")
     p.add_argument("--runs-dir", type=Path, default=Path("runs", "training"))
     p.set_defaults(func=cmd_report)
+
+    # Read saved artifacts without starting any new model training.
+    from graphml_lichess.analysis.__main__ import add_arguments, run_analysis
+
+    p = sub.add_parser("analyze", help="Summarize runs and plot models or alpha/zero-edge sweeps")
+    add_arguments(p)
+    p.set_defaults(func=run_analysis)
 
     args = parser.parse_args(argv)
     args.func(args)

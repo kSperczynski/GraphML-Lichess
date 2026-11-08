@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from graphml_lichess.analysis.provenance import capture_data_provenance
 from graphml_lichess.data_processing.data_splits import Masks, NodeSplit
 from graphml_lichess.data_processing.feature_preprocessing import FeaturePreprocessor
 from graphml_lichess.data_processing.graph_data_loader import GraphData, LichessGraphLoader
@@ -28,6 +29,7 @@ def load_graph(config: dict):
         directed=bool(config["graph"]["directed"]),
         add_self_loops=bool(config["graph"].get("add_self_loops", True)),
         add_zero_edges=bool(config["graph"].get("add_zero_edges", False)),
+        remove_added_zero_edges=bool(config["graph"].get("remove_added_zero_edges", False)),
         replace_edge_features_with_attention=bool(config["graph"].get("replace_edge_features_with_attention", False)),
         chisquare_adjust_for_attention=int(config["graph"].get("chisquare_adjust", 0)),
     ).load()
@@ -83,6 +85,12 @@ class TrainingPipeline:
         prediction = regressor.predict(data)
 
         metrics = evaluate_predictions(target, prediction, masks.as_dict())
+        train_mean = float(target[masks.train].mean())
+        self.metadata["train_target_mean"] = train_mean
+        for name, mask in masks.as_dict().items():
+            baseline_mse = float(np.mean((target[mask] - train_mean) ** 2))
+            metrics[name]["mean_baseline_mse"] = baseline_mse
+            metrics[name]["nmse"] = metrics[name]["rmse"] ** 2 / baseline_mse if baseline_mse > 0 else float("nan")
         summary = {
             **metrics,
             "best_epoch": result.best_epoch,
@@ -130,6 +138,7 @@ class TrainingPipeline:
             self.run_manager.save_config(self.config)
 
             # Load the graph
+            self.metadata["data_provenance"] = capture_data_provenance(self.config)
             graph, masks, feature_processor, split = prepare_data(self.config)
             self.metadata["data_split_fingerprint"] = split.fingerprint
             feature_processor.save(self.run_dir / "scaler.joblib")
