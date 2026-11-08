@@ -31,6 +31,7 @@ dev = [
 
 [project.scripts]
 graphml-lichess = "graphml_lichess.cli:cli"
+graphml-experiments = "graphml_lichess.analysis.__main__:main"
 
 [tool.ruff]
 exclude = [".venv"]

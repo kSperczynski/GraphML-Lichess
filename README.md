@@ -10,6 +10,14 @@
 - Create experiments notebook
 - Run experiments
 
+## Shared result analysis
+
+`graphml-lichess analyze --runs runs/training --output runs/analysis/first`
+reads existing run artifacts, exports per-run/per-split summaries and creates
+model or alpha/zero-edge plots. It does not start training. See
+[the analysis guide](docs/experiment_analysis.md) for uncertainty definitions,
+legacy provenance warnings, notebook use and split-level intervals.
+
 ## Models
 
 I split `GAT` up into two models (and configs etc.). One is using GATv2, and the other the original GAT. Since this changes the actual architecture I think we can view it as more than a hyperparameter.

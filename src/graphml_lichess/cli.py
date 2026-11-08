@@ -8,7 +8,7 @@ import yaml
 
 from graphml_lichess.config import load_config
 from graphml_lichess.data_processing.data_splits import make_split
-from graphml_lichess.training.pipeline import TrainingPipeline, ExplainabilityPipeline, load_graph
+from graphml_lichess.training.pipeline import ExplainabilityPipeline, TrainingPipeline, load_graph
 from graphml_lichess.tuning.tuning import tune
 from graphml_lichess.utils.logging import configure_logging
 
@@ -123,6 +123,7 @@ def cmd_explain(args) -> None:
     explainability_pipeline = ExplainabilityPipeline(run_config)
     explainability_pipeline.run()
 
+
 def cli(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="graphml-lichess")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -176,6 +177,13 @@ def cli(argv=None) -> None:
     p = sub.add_parser("explain", help="Run explainability experiments.")
     add_config(p)
     p.set_defaults(func=cmd_explain)
+
+    # Read saved artifacts without starting any new model training.
+    from graphml_lichess.analysis.__main__ import add_arguments, run_analysis
+
+    p = sub.add_parser("analyze", help="Summarize runs and plot models or alpha/zero-edge sweeps")
+    add_arguments(p)
+    p.set_defaults(func=run_analysis)
 
     args = parser.parse_args(argv)
     args.func(args)
