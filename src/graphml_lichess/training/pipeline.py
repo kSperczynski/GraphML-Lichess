@@ -273,7 +273,23 @@ class ExplainabilityPipeline:
         self, explanation: Explanation, data: Data, outlier_indices: torch.Tensor, outlier_bools: torch.Tensor
     ):
         # bar plot, feature importance
-        explanation.visualize_feature_importance(self.run_dir / "feature_importance.png")
+        feat_labels = [
+            "acpl",
+            "accuracy",
+            "num_moves",
+            "frac_blunders",
+            "frac_mistakes",
+            "frac_inaccuracies",
+            "avg_move_time",
+            "last_theory_ply",
+            "win_streak",
+            "loss_streak",
+            "num_games",
+            "win_rate",
+            "loss_rate",
+            "draw_rate",
+        ]
+        explanation.visualize_feature_importance(self.run_dir / "feature_importance.png", feat_labels=feat_labels)
 
         # inform
         print(f"Feature importance saved to {self.run_dir / 'feature_importance.png'}")
@@ -290,9 +306,9 @@ class ExplainabilityPipeline:
         print(f"Reds = supporting explanations: {len(list(filter(lambda x: x == 'red', colors)))}")
 
         # figure: color by outlier/explanation status
-        plt.figure()
+        plt.figure(figsize=(8, 4))
         g_full_data = to_networkx(subgraph, to_undirected=False)
-        nx.draw(g_full_data, node_color=colors, node_size=1, width=1)
+        nx.draw(g_full_data, node_color=colors, node_size=2, width=1, edge_color="#666666", arrowsize=3)
 
         # Custom legend
         red_patch = mpatches.Patch(color="red", label="Explanation Nodes")
