@@ -1,0 +1,26 @@
+name: dominant
+base: ../base.yaml
+model_type: dominant
+
+model:
+  device: "cuda"
+  hid_dim: 64
+  num_layers: 4
+  dropout: 0
+  contamination: 0.1
+
+predictions:
+  probability-type: "linear"
+
+training:
+  epochs: 1000
+  learning_rate: 0.004
+  weight_decay: 0
+
+graph:
+  directed: true
+  add_self_loops: false
+  add_zero_edges: true
+  # replace_edge_features_with_attention: true
+  # chisquare_adjust: 25
+  loss: mse

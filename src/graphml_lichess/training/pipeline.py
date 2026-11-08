@@ -1,9 +1,19 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 import pandas as pd
 import torch
+from pygod.detector import DOMINANT
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from torch_geometric.data import Data
+from torch_geometric.explain import Explainer, Explanation, GNNExplainer, ThresholdConfig
+from torch_geometric.nn import GAT
+from torch_geometric.utils import to_dense_adj, to_networkx
 
 from graphml_lichess.analysis.provenance import capture_data_provenance
 from graphml_lichess.data_processing.data_splits import Masks, NodeSplit
@@ -154,3 +164,320 @@ class TrainingPipeline:
         except Exception:
             self.logger.exception("Training pipeline failed")
             raise
+
+
+class InterfaceModel(torch.nn.Module):
+    """
+    Abstraction model that serves as an interface between the GNNExplainer and Dominant for compatibility.
+
+    Notes:
+    - Dominant's forward pass returns two tensors, X_pred [N x 14] and Adj [N x N]
+    - Dominant exposes a `predict` function, but it appears non-differentiable somewhere in between.
+    - Score computation according to eq. (3.11) from the paper "Deep Anomaly Detection on Attributed Networks"
+
+    This interface model implements a forward pass that translates the results of Dominant to the Dominant score.
+    """
+
+    def __init__(self, dominant_backbone: DOMINANT, data, config, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.dominant_backbone = dominant_backbone
+        self.dominant_backbone.model.requires_grad_(True)
+        self.data = data
+        self.config = config
+
+    def forward(self, x, edge_index):
+
+        # forward pass of the full Dominant
+        xs, A = self.dominant_backbone.model.forward(x, edge_index)
+
+        # compute score ourselves -> while Dominant provides a `predict` function, it seems to drop gradients somewhere along the way, and I could not figure out how to make it compatible with GNNExplainer
+        xs_component = ((xs - x) ** 2.0).sum(dim=-1)
+        adj_component = (
+            ((A - to_dense_adj(edge_index)) ** 2.0).sum(dim=-1).squeeze(0)
+        )  # necessary squeeze, don't remove; otherwise [1, N]
+
+        # double check, but to my understanding this is the alpha from (3.11) in the paper.
+        alpha = self.dominant_backbone.weight
+
+        score = (
+            alpha * xs_component + (1 - alpha) * adj_component
+        )  ## WARN! if the shapes do not match, an arbitrary masking error will appear. Check the assert below.
+        assert xs_component.shape == adj_component.shape, (
+            f"ERR: shapes do not match: {xs_component.shape} and {adj_component.shape}"
+        )
+
+        ### Probability Computation
+        # mirror computation of the probability via the linear algorithm of Dominant
+        # for details, see `.venv/lib/python3.12/site-packages/pygod/detector/base.py:195`
+        # or search for `prob = self._predict_prob(score, prob_method)` in VSCode in the full directory (incl. the venv)
+        train_score = self.dominant_backbone.decision_score_
+        prob = score - train_score.min()
+        prob /= train_score.max() - train_score.min()
+        prob = prob.clamp(0, 1)
+        ###
+
+        return prob
+
+
+class ExplainabilityPipeline:
+    """Runs explainability experiments."""
+
+    def __init__(self, config: dict):
+        self.config = config
+
+        self.run_manager = RunManager(
+            base_dir=self.config["output"]["directory"],  # inherits from base yaml
+            prefix=self.config.get("name", "john_doe"),
+        )
+        self.run_dir = self.run_manager.run_dir
+
+    def _save_feature_reconstruction_errors(self, graph, dominant_model, outlier_mask, top_k: int = 5):
+        """Per-outlier, per-feature squared reconstruction error."""
+        feature_names = list(self.config["data"]["feature_columns"])
+        model = dominant_model.model
+        device = next(model.parameters()).device
+
+        model.eval()
+        with torch.no_grad():
+            x = graph.data.x.to(device)
+            x_hat, _ = model(x, graph.data.edge_index.to(device))
+
+        sq_err = ((x_hat - x) ** 2).cpu()  # [N, F]
+        outlier_idx = torch.nonzero(outlier_mask).squeeze(-1)
+        err = sq_err[outlier_idx].numpy()  # [n_outliers, F]
+        usernames = np.asarray(graph.usernames)[outlier_idx.numpy()]
+
+        df = pd.DataFrame(err, columns=feature_names)
+        df.insert(0, "username", usernames)
+        df.to_csv(self.run_dir / "outlier_feature_errors.csv", index=False)
+
+        share = err / err.sum(axis=1, keepdims=True)
+        pd.DataFrame(share, columns=feature_names).assign(username=usernames).to_csv(
+            self.run_dir / "outlier_feature_error_share.csv", index=False
+        )
+
+    def _save_outlier_info(
+        self,
+        graph,
+        predicted_mask: torch.Tensor,
+        predicted_scores: torch.Tensor,
+        predicted_probabilities: torch.Tensor,
+        predicted_confidence: torch.Tensor,
+    ) -> None:
+        pd.DataFrame(
+            {
+                "username": np.asarray(graph.usernames),
+                "predicted_mask": predicted_mask,
+                "predicted_scores": predicted_scores,
+                "predicted_probabilities": predicted_probabilities,
+                "predicted_confidence": predicted_confidence,
+            }
+        ).to_csv(self.run_dir / "predicted_outliers.csv", index=False)
+
+        print(f"Outlier info saved to {self.run_dir / 'predicted_outliers.csv'}")
+
+    def _save_explanation(
+        self, explanation: Explanation, data: Data, outlier_indices: torch.Tensor, outlier_bools: torch.Tensor
+    ):
+        # bar plot, feature importance
+        feat_labels = [
+            "acpl",
+            "accuracy",
+            "num_moves",
+            "frac_blunders",
+            "frac_mistakes",
+            "frac_inaccuracies",
+            "avg_move_time",
+            "last_theory_ply",
+            "win_streak",
+            "loss_streak",
+            "num_games",
+            "win_rate",
+            "loss_rate",
+            "draw_rate",
+        ]
+        explanation.visualize_feature_importance(self.run_dir / "feature_importance.png", feat_labels=feat_labels)
+
+        # inform
+        print(f"Feature importance saved to {self.run_dir / 'feature_importance.png'}")
+
+        explanation_being_used_mask = explanation.get("node_mask").sum(dim=-1).squeeze(-1) > 0
+        union_mask = torch.logical_or(explanation_being_used_mask.cpu(), outlier_bools.cpu())
+        union_indices = torch.arange(start=0, end=union_mask.shape[0], step=1)[union_mask.bool()].cpu()
+
+        # get subgraph
+        subgraph = data.subgraph(union_indices)
+        colors = ["blue" if n in outlier_indices else "red" for n in union_indices]
+
+        print(f"Blues = outliers: {len(list(filter(lambda x: x == 'blue', colors)))}")
+        print(f"Reds = supporting explanations: {len(list(filter(lambda x: x == 'red', colors)))}")
+
+        # figure: color by outlier/explanation status
+        plt.figure(figsize=(8, 4))
+        g_full_data = to_networkx(subgraph, to_undirected=False)
+        nx.draw(g_full_data, node_color=colors, node_size=2, width=1, edge_color="#666666", arrowsize=3)
+
+        # Custom legend
+        red_patch = mpatches.Patch(color="red", label="Explanation Nodes")
+        blue_patch = mpatches.Patch(color="blue", label="Outlier Nodes")
+        plt.legend(handles=[blue_patch, red_patch])
+
+        plt.savefig(self.run_dir / "graph-visualized.png", dpi=400)
+        print(f"Full Graph Visualisation saved to {self.run_dir / 'graph-visualized.png'}")
+
+    def _cluster_outliers(self, graph, dominant_model, outlier_mask, k_range=range(2, 7)):
+        feature_names = list(self.config["data"]["feature_columns"])
+        model = dominant_model.model
+        device = next(model.parameters()).device
+
+        model.eval()
+        with torch.no_grad():
+            x = graph.data.x.to(device)
+            edge_index = graph.data.edge_index.to(device)
+            x_hat, a_hat = model(x, edge_index)
+            a = to_dense_adj(edge_index, max_num_nodes=x.shape[0]).squeeze(0)
+            attr_err = ((x_hat - x) ** 2).cpu().numpy()
+            struct_err = ((a_hat - a) ** 2).sum(dim=-1).cpu().numpy()
+
+        def zlog(v):
+            v = np.log1p(v)
+            return (v - v.mean(0)) / (v.std(0) + 1e-12)
+
+        profile = np.column_stack([zlog(attr_err), zlog(struct_err[:, None])])
+        columns = feature_names + ["structure"]
+
+        idx = torch.nonzero(outlier_mask).squeeze(-1).cpu().numpy()
+        X = profile[idx]
+        usernames = np.asarray(graph.usernames)[idx]
+
+        if len(idx) < 4:
+            print("Too few outliers to cluster.")
+            return
+
+        # pick k by silhouette score
+        best_k, best_score = None, -1.0
+        for k in k_range:
+            if k >= len(idx):
+                break
+            labels = KMeans(n_clusters=k, n_init=20, random_state=self.config.get("seed", 0)).fit_predict(X)
+            score = silhouette_score(X, labels)
+            print(f"k={k}: silhouette={score:.3f}")
+            if score > best_score:
+                best_k, best_score = k, score
+
+        labels = KMeans(n_clusters=best_k, n_init=20, random_state=self.config.get("seed", 0)).fit_predict(X)
+        print(f"Chose k={best_k} (silhouette={best_score:.3f})")
+
+        pd.DataFrame(
+            {
+                "username": usernames,
+                "cluster": labels,
+                "attr_error_total": attr_err[idx].sum(axis=1),
+                "struct_error_total": struct_err[idx],
+            }
+        ).to_csv(self.run_dir / "outlier_clusters.csv", index=False)
+
+        prof = pd.DataFrame(X, columns=columns).assign(cluster=labels).groupby("cluster").mean()
+        prof.insert(0, "size", np.bincount(labels))
+        prof.to_csv(self.run_dir / "outlier_cluster_profiles.csv")
+
+    def run(self):
+
+        # load all available data
+        graph, _, _, _ = prepare_data(self.config)
+
+        # get the data
+        data = graph.data
+
+        # create the model
+        dominant_model = DOMINANT(
+            hid_dim=self.config["model"]["hid_dim"],
+            num_layers=self.config["model"]["num_layers"],
+            dropout=self.config["model"]["dropout"],
+            weight_decay=self.config["training"]["weight_decay"],
+            contamination=self.config["model"]["contamination"],
+            lr=self.config["training"]["learning_rate"],
+            epoch=self.config["training"]["epochs"],
+            gpu=0 if self.config["model"]["device"] == "cuda" else -1,
+            backbone=GAT,
+        )
+
+        # fit
+        dominant_model.fit(data=data, label=None)  # <-- no labels
+
+        # (INFO) this is an alternative to the custom score calculation inside the forward() of the InterfaceModel; however, gradients are removed somewhere in between
+        # we still want predictions: allows us to explain only the nodes that were flagged as outliers hence this line still is needed.
+        pred, score, prob, conf = dominant_model.predict(
+            data,
+            return_pred=True,
+            return_score=True,
+            return_prob=True,
+            return_conf=True,
+            prob_method=self.config["predictions"]["probability-type"],
+        )
+        pred = pred.bool()
+
+        self._cluster_outliers(graph, dominant_model, pred)
+        self._save_feature_reconstruction_errors(graph, dominant_model, pred)
+
+        # debug, inform
+        print(f"Predicted {pred.sum().item()} outliers.")
+
+        # save outlier info
+        self._save_outlier_info(graph, pred, score, prob, conf)
+
+        # create interface model, see class docstring for details
+        interface_model = InterfaceModel(dominant_backbone=dominant_model, data=data, config=self.config)
+        interface_model.to(self.config["model"]["device"])
+        # an alternative would be to overwrite the Dominant forward-pass function with the score computation similarly to:
+        # dominant_model.model.forward = lambda x_edge_tuple: ...
+        # but the interface model above might be a cleaner approach.
+
+        # Explanation for all the outliers
+        node_index_tensor = torch.arange(start=0, end=pred.shape[0], step=1)[pred]
+
+        explainer = Explainer(
+            model=interface_model,
+            algorithm=GNNExplainer(epochs=300),
+            explanation_type="model",
+            node_mask_type="attributes",
+            edge_mask_type=None,
+            model_config={
+                "mode": "binary_classification",
+                "task_level": "node",
+                "return_type": "probs",
+            },
+            threshold_config=ThresholdConfig(
+                "topk", int(3.656 * node_index_tensor.shape[0])
+            ),  # 3.656 is the average out-degree
+        )
+
+        explanation: Explanation = explainer(
+            data.x.to(self.config["model"]["device"]),
+            data.edge_index.to(self.config["model"]["device"]),
+            index=node_index_tensor.to(self.config["model"]["device"]),
+        )
+
+        subgraph_explanation = explanation.get_explanation_subgraph()
+
+        print(f"Subgraph x shape: {subgraph_explanation.x.shape}")
+        print(f"Num edges in the subgraph: {subgraph_explanation.edge_index.shape[1]}")
+
+        # set overlap
+        explanation_being_used_mask = explanation.get("node_mask").sum(dim=-1).squeeze(-1) > 0  # 7181x1 bool tensor
+        explanation_nodes_used = torch.arange(start=0, end=pred.shape[0], step=1)[explanation_being_used_mask.cpu()]
+        explanation_nodes_used = explanation_nodes_used.cpu().tolist()
+        outlier_nodes = node_index_tensor.cpu().tolist()
+
+        set_union = set(outlier_nodes).union(set(explanation_nodes_used))
+        set_intersection = set(outlier_nodes).intersection(set(explanation_nodes_used))
+
+        print(f"Nodes intersection: {len(list(set_intersection))}")
+        print(f"Nodes union: {len(list(set_union))}")
+
+        # debug print
+        print(explanation)
+
+        # save results
+        self._save_explanation(explanation, data, node_index_tensor, pred)
